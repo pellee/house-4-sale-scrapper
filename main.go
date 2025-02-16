@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	sf "strings"
+	"time"
 
 	"github.com/gocolly/colly"
 )
@@ -34,7 +35,9 @@ type real_state struct {
 }
 
 type house struct {
-	Id                 string        `json:"id"` // TODO: buscar la manera de convertir el link de la propiedad en un hash.
+	Id                 string        `json:"id"`
+	Scrape_date        string        `json:"scrape_date"`
+	Publication_date   string        `json:"publication_date"`
 	Location_info      location      `json:"location_info"`
 	Price_info         price         `json:"price_info"`
 	Square_meters_info square_meters `json:"square_meters_info"`
@@ -84,11 +87,13 @@ func main() {
 		hash.Write([]byte(link))
 
 		houses = append(houses, house{
-			Id:            hex.EncodeToString(hash.Sum(nil)),
-			Location_info: GetLocationInfo(e.ChildText("span.poly-component__location")),
+			Id:               hex.EncodeToString(hash.Sum(nil)),
+			Scrape_date:      time.Now().Format(time.RFC3339),
+			Publication_date: "unknown",
+			Location_info:    GetLocationInfo(e.ChildText("span.poly-component__location")),
 			Price_info: price{
 				sf.Replace(e.ChildText("span.andes-money-amount__fraction"), ".", "", 1),
-				e.ChildText("span.andes-money-a375mount__currency-symbol"),
+				e.ChildText("span.andes-money-amount__currency-symbol"),
 			},
 			Square_meters_info: square_meters{"unknown", "unknown"},
 			Real_state_info:    real_state{"unknown", "unknown"},
@@ -103,6 +108,42 @@ func main() {
 		fmt.Println("Visiting", r.URL)
 	})
 
+	// TODO: ver como puedo acceder a los valores de la tabla. Pareciera ser que, de manera aleatoria,a veces puedo acceder a los valores y a veces no.
+	// inner_collector.OnHTML("div.ui-pdp-container__col.col-1.ui-vip-core-container--content-left", func(e *colly.HTMLElement) {
+	// 	link := e.Request.URL.String()
+	// 	value := 0
+	//
+	// 	hash := md5.New()
+	// 	hash.Write([]byte(link))
+	//
+	// 	i := slices.IndexFunc(houses, func(h house) bool {
+	// 		return h.Id == hex.EncodeToString(hash.Sum(nil))
+	// 	})
+	//
+	// 	if i != -1 {
+	// 		e.ForEach("table>tbody>tr", func(_ int, e *colly.HTMLElement) {
+	// 			if value == 0 {
+	// 				fmt.Println("entro al 1.1 " + e.ChildText("td"))
+	// 				houses[i].Square_meters_info.Total = e.ChildText("td")
+	// 				if houses[i].Square_meters_info.Total == "unknown" {
+	// 					fmt.Println("entro al 1.2 " + e.ChildText("td>span"))
+	// 					houses[i].Square_meters_info.Total = e.ChildText("td>span")
+	// 				}
+	// 			}
+	// 			if value == 1 {
+	// 				fmt.Println(e.ChildText("td"))
+	// 				fmt.Println("entro al 2.1 " + e.ChildText("td"))
+	// 				houses[i].Square_meters_info.Covered = e.ChildText("td")
+	// 				if houses[i].Square_meters_info.Covered == "unknown" {
+	// 					fmt.Println("entro al 2.2 " + e.ChildText("td>span"))
+	// 					houses[i].Square_meters_info.Covered = e.ChildText("td>span")
+	// 				}
+	// 			}
+	// 			value++
+	// 		})
+	// 	}
+	// })
+
 	inner_collector.OnHTML("div#ui-pdp-main-container", func(e *colly.HTMLElement) {
 		link := e.Request.URL.String()
 
@@ -114,6 +155,13 @@ func main() {
 		})
 
 		if i != -1 {
+			publication_date := e.ChildText("div.ui-pdp-seller-validated > p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-seller-validated__title")
+
+			if sf.Contains(publication_date, "identidad verificada") {
+				publication_date = e.ChildText("p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-header__bottom-subtitle")
+			}
+
+			houses[i].Publication_date = publication_date
 			houses[i].Real_state_info.Name = e.ChildText("div.ui-vip-profile-info__info-link")
 		}
 	})
