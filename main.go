@@ -24,128 +24,94 @@ type price struct {
 	Currency string `json:"currency"`
 }
 
-type square_meters struct {
+type squareMeters struct {
 	Covered string `json:"covered"`
 	Total   string `json:"total"`
 }
 
-type real_state struct {
+type realState struct {
 	Name  string `json:"name"`
 	Phone string `json:"phone"`
 }
 
 type house struct {
-	Id                 string        `json:"id"`
-	Scrape_date        string        `json:"scrape_date"`
-	Publication_date   string        `json:"publication_date"`
-	Location_info      location      `json:"location_info"`
-	Price_info         price         `json:"price_info"`
-	Square_meters_info square_meters `json:"square_meters_info"`
-	Real_state_info    real_state    `json:"real_state_info"`
-	Credit_suitable    bool          `json:"credital_suitable"`
-	Link               string        `json:"link"`
+	Id               string       `json:"id"`
+	ScrapeDate       string       `json:"scrape_date"`
+	PublicationDate  string       `json:"publication_date"`
+	LocationInfo     location     `json:"location_info"`
+	PriceInfo        price        `json:"price_info"`
+	SquareMetersInfo squareMeters `json:"square_meters_info"`
+	RealStateInfo    realState    `json:"real_state_info"`
+	CreditSuitable   bool         `json:"credital_suitable"`
+	Link             string       `json:"link"`
 }
 
-func GetLocationInfo(raw_location string) location {
-	splitted_location := sf.Split(raw_location, ",")
+func GetLocationInfo(rawLocation string) location {
+	splittedLocation := sf.Split(rawLocation, ",")
 
-	if len(splitted_location) == 5 {
+	if len(splittedLocation) == 5 {
 		return location{
-			Zone:     sf.TrimSpace(splitted_location[4]),
-			Locality: sf.TrimSpace(splitted_location[3]),
-			Hood:     sf.TrimSpace(splitted_location[1]) + sf.TrimSpace(splitted_location[2]),
-			Address:  sf.TrimSpace(splitted_location[0]),
+			Zone:     sf.TrimSpace(splittedLocation[4]),
+			Locality: sf.TrimSpace(splittedLocation[3]),
+			Hood:     sf.TrimSpace(splittedLocation[1]) + sf.TrimSpace(splittedLocation[2]),
+			Address:  sf.TrimSpace(splittedLocation[0]),
 		}
-	} else if len(splitted_location) == 3 {
+	} else if len(splittedLocation) == 3 {
 		return location{
-			Zone:     sf.TrimSpace(splitted_location[2]),
-			Locality: sf.TrimSpace(splitted_location[1]),
+			Zone:     sf.TrimSpace(splittedLocation[2]),
+			Locality: sf.TrimSpace(splittedLocation[1]),
 			Hood:     sf.TrimSpace("unknown"),
-			Address:  sf.TrimSpace(splitted_location[0]),
+			Address:  sf.TrimSpace(splittedLocation[0]),
 		}
 	}
 
 	return location{
-		Zone:     sf.TrimSpace(splitted_location[3]),
-		Locality: sf.TrimSpace(splitted_location[2]),
-		Hood:     sf.TrimSpace(splitted_location[1]),
-		Address:  sf.TrimSpace(splitted_location[0]),
+		Zone:     sf.TrimSpace(splittedLocation[3]),
+		Locality: sf.TrimSpace(splittedLocation[2]),
+		Hood:     sf.TrimSpace(splittedLocation[1]),
+		Address:  sf.TrimSpace(splittedLocation[0]),
 	}
 }
 
 func main() {
 	houses := make([]house, 0)
 	domains := [2]string{"inmuebles.mercadolibre.com.ar", "casa.mercadolibre.com.ar"}
-	main_collector := colly.NewCollector(colly.AllowedDomains(domains[0], domains[1]))
-	inner_collector := main_collector.Clone()
+	mainCollector := colly.NewCollector(colly.AllowedDomains(domains[0], domains[1]))
+	innerCollector := mainCollector.Clone()
 
 	// Find and visit all links
-	main_collector.OnHTML("div.poly-card__content", func(e *colly.HTMLElement) {
+	mainCollector.OnHTML("div.poly-card__content", func(e *colly.HTMLElement) {
 		link := e.ChildAttr("a", "href")
 
 		hash := md5.New()
 		hash.Write([]byte(link))
 
 		houses = append(houses, house{
-			Id:               hex.EncodeToString(hash.Sum(nil)),
-			Scrape_date:      time.Now().Format(time.RFC3339),
-			Publication_date: "unknown",
-			Location_info:    GetLocationInfo(e.ChildText("span.poly-component__location")),
-			Price_info: price{
+			Id:              hex.EncodeToString(hash.Sum(nil)),
+			ScrapeDate:      time.Now().Format(time.RFC3339),
+			PublicationDate: "unknown",
+			LocationInfo:    GetLocationInfo(e.ChildText("span.poly-component__location")),
+			PriceInfo: price{
 				sf.Replace(e.ChildText("span.andes-money-amount__fraction"), ".", "", 1),
 				e.ChildText("span.andes-money-amount__currency-symbol"),
 			},
-			Square_meters_info: square_meters{"unknown", "unknown"},
-			Real_state_info:    real_state{"unknown", "unknown"},
-			Credit_suitable:    false,
-			Link:               link,
+			SquareMetersInfo: squareMeters{"unknown", "unknown"},
+			RealStateInfo:    realState{"unknown", "unknown"},
+			CreditSuitable:   false,
+			Link:             link,
 		})
 
-		inner_collector.Visit(link)
+		innerCollector.Visit(link)
 	})
 
-	main_collector.OnRequest(func(r *colly.Request) {
+	mainCollector.OnRequest(func(r *colly.Request) {
 		fmt.Println("Visiting", r.URL)
 	})
 
 	// TODO: ver como puedo acceder a los valores de la tabla. Pareciera ser que, de manera aleatoria,a veces puedo acceder a los valores y a veces no.
-	// inner_collector.OnHTML("div.ui-pdp-container__col.col-1.ui-vip-core-container--content-left", func(e *colly.HTMLElement) {
-	// 	link := e.Request.URL.String()
-	// 	value := 0
-	//
-	// 	hash := md5.New()
-	// 	hash.Write([]byte(link))
-	//
-	// 	i := slices.IndexFunc(houses, func(h house) bool {
-	// 		return h.Id == hex.EncodeToString(hash.Sum(nil))
-	// 	})
-	//
-	// 	if i != -1 {
-	// 		e.ForEach("table>tbody>tr", func(_ int, e *colly.HTMLElement) {
-	// 			if value == 0 {
-	// 				fmt.Println("entro al 1.1 " + e.ChildText("td"))
-	// 				houses[i].Square_meters_info.Total = e.ChildText("td")
-	// 				if houses[i].Square_meters_info.Total == "unknown" {
-	// 					fmt.Println("entro al 1.2 " + e.ChildText("td>span"))
-	// 					houses[i].Square_meters_info.Total = e.ChildText("td>span")
-	// 				}
-	// 			}
-	// 			if value == 1 {
-	// 				fmt.Println(e.ChildText("td"))
-	// 				fmt.Println("entro al 2.1 " + e.ChildText("td"))
-	// 				houses[i].Square_meters_info.Covered = e.ChildText("td")
-	// 				if houses[i].Square_meters_info.Covered == "unknown" {
-	// 					fmt.Println("entro al 2.2 " + e.ChildText("td>span"))
-	// 					houses[i].Square_meters_info.Covered = e.ChildText("td>span")
-	// 				}
-	// 			}
-	// 			value++
-	// 		})
-	// 	}
-	// })
-
-	inner_collector.OnHTML("div#ui-pdp-main-container", func(e *colly.HTMLElement) {
+	innerCollector.OnHTML("div#ui-pdp-main-container", func(e *colly.HTMLElement) {
 		link := e.Request.URL.String()
+		value := 0
 
 		hash := md5.New()
 		hash.Write([]byte(link))
@@ -155,25 +121,25 @@ func main() {
 		})
 
 		if i != -1 {
-			publication_date := e.ChildText("div.ui-pdp-seller-validated > p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-seller-validated__title")
+			publicationDate := e.ChildText("div.ui-pdp-seller-validated > p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-seller-validated__title")
 
-			if sf.Contains(publication_date, "identidad verificada") {
-				publication_date = e.ChildText("p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-header__bottom-subtitle")
+			if sf.Contains(publicationDate, "identidad verificada") {
+				publicationDate = e.ChildText("p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-header__bottom-subtitle")
 			}
 
-			houses[i].Publication_date = publication_date
-			houses[i].Real_state_info.Name = e.ChildText("div.ui-vip-profile-info__info-link")
+			houses[i].PublicationDate = publicationDate
+			houses[i].RealStateInfo.Name = e.ChildText("div.ui-vip-profile-info__info-link")
 		}
 	})
 
-	inner_collector.OnRequest(func(r *colly.Request) {
+	innerCollector.OnRequest(func(r *colly.Request) {
 		fmt.Println("Visiting", r.URL)
 	})
 
-	main_collector.Visit("https://inmuebles.mercadolibre.com.ar/casas/venta/bsas-gba-sur/la-plata")
+	mainCollector.Visit("https://inmuebles.mercadolibre.com.ar/casas/venta/bsas-gba-sur/la-plata")
 
 	result, error := json.MarshalIndent(houses, "", "\t")
-
+	
 	if error != nil {
 		fmt.Println(error)
 	}
