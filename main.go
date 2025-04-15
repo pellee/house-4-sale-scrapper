@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"slices"
 	sf "strings"
 	"time"
 
 	"github.com/gocolly/colly"
+	"github.com/gocolly/colly/extensions"
 )
 
 type location struct {
@@ -36,14 +38,18 @@ type realState struct {
 
 type house struct {
 	Id               string       `json:"id"`
-	ScrapeDate       string       `json:"scrape_date"`
-	PublicationDate  string       `json:"publication_date"`
-	LocationInfo     location     `json:"location_info"`
-	PriceInfo        price        `json:"price_info"`
-	SquareMetersInfo squareMeters `json:"square_meters_info"`
-	RealStateInfo    realState    `json:"real_state_info"`
-	CreditSuitable   bool         `json:"credital_suitable"`
+	ScrapeDate       string       `json:"scrapeDate"`
+	PageScraped      string       `json:"pageScraped"`
+	PublicationDate  string       `json:"publicationDate"`
+	LocationInfo     location     `json:"locationInfo"`
+	PriceInfo        price        `json:"priceInfo"`
+	SquareMetersInfo squareMeters `json:"squareMetersInfo"`
+	RealStateInfo    realState    `json:"realStateInfo"`
+	CreditSuitable   bool         `json:"creditalSuitable"`
 	Link             string       `json:"link"`
+	PropertyType     string       `json:"propertyType"`
+	Bedrooms         string       `json:"bedrooms"`
+	Bathrooms        string       `json:"bathrooms"`
 }
 
 func GetLocationInfo(rawLocation string) location {
@@ -73,21 +79,33 @@ func GetLocationInfo(rawLocation string) location {
 	}
 }
 
+func GetId(link string) string {
+	hash := md5.New()
+	hash.Write([]byte(link))
+
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
 func main() {
 	houses := make([]house, 0)
+
 	domains := [2]string{"inmuebles.mercadolibre.com.ar", "casa.mercadolibre.com.ar"}
-	mainCollector := colly.NewCollector(colly.AllowedDomains(domains[0], domains[1]))
+
+	mainCollector := colly.NewCollector(colly.AllowedDomains(domains[0], domains[1]), colly.Async(true))
+	mainCollector.Limit(&colly.LimitRule{RandomDelay: 5 * time.Second, Parallelism: 2})
+	mainCollector.WithTransport(&http.Transport{
+		DisableKeepAlives: true,
+	})
+
 	innerCollector := mainCollector.Clone()
 
-	// Find and visit all links
 	mainCollector.OnHTML("div.poly-card__content", func(e *colly.HTMLElement) {
-		link := e.ChildAttr("a", "href")
-
-		hash := md5.New()
-		hash.Write([]byte(link))
+		link := sf.Split(e.ChildAttr("a", "href"), "#")[0]
 
 		houses = append(houses, house{
-			Id:              hex.EncodeToString(hash.Sum(nil)),
+			Id:              GetId(link),
+			PageScraped: "Mercado Libre",
+			PropertyType: "Casa",
 			ScrapeDate:      time.Now().Format(time.RFC3339),
 			PublicationDate: "unknown",
 			LocationInfo:    GetLocationInfo(e.ChildText("span.poly-component__location")),
@@ -95,29 +113,20 @@ func main() {
 				sf.Replace(e.ChildText("span.andes-money-amount__fraction"), ".", "", 1),
 				e.ChildText("span.andes-money-amount__currency-symbol"),
 			},
-			SquareMetersInfo: squareMeters{"unknown", "unknown"},
+			SquareMetersInfo: squareMeters{sf.Split(e.ChildText("div.poly-component__attributes-list > ul > li:nth-child(3)"), " ")[0], "unknown"},
 			RealStateInfo:    realState{"unknown", "unknown"},
 			CreditSuitable:   false,
 			Link:             link,
+			Bedrooms:         "unknown",
+			Bathrooms:        "unknown",
 		})
 
 		innerCollector.Visit(link)
 	})
 
-	mainCollector.OnRequest(func(r *colly.Request) {
-		fmt.Println("Visiting", r.URL)
-	})
-
-	// TODO: ver como puedo acceder a los valores de la tabla. Pareciera ser que, de manera aleatoria,a veces puedo acceder a los valores y a veces no.
 	innerCollector.OnHTML("div#ui-pdp-main-container", func(e *colly.HTMLElement) {
-		link := e.Request.URL.String()
-		value := 0
-
-		hash := md5.New()
-		hash.Write([]byte(link))
-
 		i := slices.IndexFunc(houses, func(h house) bool {
-			return h.Id == hex.EncodeToString(hash.Sum(nil))
+			return h.Id == GetId(e.Request.URL.String())
 		})
 
 		if i != -1 {
@@ -127,19 +136,42 @@ func main() {
 				publicationDate = e.ChildText("p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-header__bottom-subtitle")
 			}
 
+			bedrooms := e.ChildText("div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(3) > td")
+			bathrooms := e.ChildText("div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(4) > td")
+
+			if len(sf.TrimSpace(bedrooms)) != 0 {
+				houses[i].Bedrooms = bedrooms
+			}
+
+			if len(sf.TrimSpace(bathrooms)) != 0 {
+				houses[i].Bathrooms = bathrooms
+			}
+
 			houses[i].PublicationDate = publicationDate
 			houses[i].RealStateInfo.Name = e.ChildText("div.ui-vip-profile-info__info-link")
+			houses[i].SquareMetersInfo.Total = sf.Split(e.ChildText("div.ui-pdp-highlighted-specs-res__icon-label:nth-child(1) > span:nth-child(2)"), " ")[0]
 		}
 	})
 
+	mainCollector.OnRequest(func(r *colly.Request) {
+		extensions.RandomUserAgent(mainCollector)
+		extensions.Referer(mainCollector)
+		fmt.Println("Visiting", r.URL)
+	})
+
 	innerCollector.OnRequest(func(r *colly.Request) {
+		extensions.RandomUserAgent(innerCollector)
+		extensions.Referer(innerCollector)
 		fmt.Println("Visiting", r.URL)
 	})
 
 	mainCollector.Visit("https://inmuebles.mercadolibre.com.ar/casas/venta/bsas-gba-sur/la-plata")
 
+	mainCollector.Wait()
+	innerCollector.Wait()
+
 	result, error := json.MarshalIndent(houses, "", "\t")
-	
+
 	if error != nil {
 		fmt.Println(error)
 	}
