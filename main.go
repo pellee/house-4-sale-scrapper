@@ -14,13 +14,6 @@ import (
 	"github.com/gocolly/colly/extensions"
 )
 
-type location struct {
-	Zone     string `json:"zone"`
-	Locality string `json:"locality"`
-	Hood     string `json:"hood"`
-	Address  string `json:"address"`
-}
-
 type price struct {
 	Amount   string `json:"amount"`
 	Currency string `json:"currency"`
@@ -41,7 +34,7 @@ type house struct {
 	ScrapeDate       string       `json:"scrapeDate"`
 	PageScraped      string       `json:"pageScraped"`
 	PublicationDate  string       `json:"publicationDate"`
-	LocationInfo     location     `json:"locationInfo"`
+	LocationInfo     string       `json:"locationInfo"`
 	PriceInfo        price        `json:"priceInfo"`
 	SquareMetersInfo squareMeters `json:"squareMetersInfo"`
 	RealStateInfo    realState    `json:"realStateInfo"`
@@ -50,33 +43,6 @@ type house struct {
 	PropertyType     string       `json:"propertyType"`
 	Bedrooms         string       `json:"bedrooms"`
 	Bathrooms        string       `json:"bathrooms"`
-}
-
-func GetLocationInfo(rawLocation string) location {
-	splittedLocation := sf.Split(rawLocation, ",")
-
-	if len(splittedLocation) == 5 {
-		return location{
-			Zone:     sf.TrimSpace(splittedLocation[4]),
-			Locality: sf.TrimSpace(splittedLocation[3]),
-			Hood:     sf.TrimSpace(splittedLocation[1]) + sf.TrimSpace(splittedLocation[2]),
-			Address:  sf.TrimSpace(splittedLocation[0]),
-		}
-	} else if len(splittedLocation) == 3 {
-		return location{
-			Zone:     sf.TrimSpace(splittedLocation[2]),
-			Locality: sf.TrimSpace(splittedLocation[1]),
-			Hood:     sf.TrimSpace("unknown"),
-			Address:  sf.TrimSpace(splittedLocation[0]),
-		}
-	}
-
-	return location{
-		Zone:     sf.TrimSpace(splittedLocation[3]),
-		Locality: sf.TrimSpace(splittedLocation[2]),
-		Hood:     sf.TrimSpace(splittedLocation[1]),
-		Address:  sf.TrimSpace(splittedLocation[0]),
-	}
 }
 
 func GetId(link string) string {
@@ -104,11 +70,11 @@ func main() {
 
 		houses = append(houses, house{
 			Id:              GetId(link),
-			PageScraped: "Mercado Libre",
-			PropertyType: "Casa",
+			PageScraped:     "Mercado Libre",
+			PropertyType:    "Casa",
 			ScrapeDate:      time.Now().Format(time.RFC3339),
 			PublicationDate: "unknown",
-			LocationInfo:    GetLocationInfo(e.ChildText("span.poly-component__location")),
+			LocationInfo:    e.ChildText("span.poly-component__location"),
 			PriceInfo: price{
 				sf.Replace(e.ChildText("span.andes-money-amount__fraction"), ".", "", 1),
 				e.ChildText("span.andes-money-amount__currency-symbol"),
@@ -122,6 +88,10 @@ func main() {
 		})
 
 		innerCollector.Visit(link)
+	})
+
+	mainCollector.OnHTML("[title=Siguiente]", func(h *colly.HTMLElement) {
+		mainCollector.Visit(h.Attr("href"))
 	})
 
 	innerCollector.OnHTML("div#ui-pdp-main-container", func(e *colly.HTMLElement) {
@@ -165,7 +135,7 @@ func main() {
 		fmt.Println("Visiting", r.URL)
 	})
 
-	mainCollector.Visit("https://inmuebles.mercadolibre.com.ar/casas/venta/bsas-gba-sur/la-plata")
+	mainCollector.Visit("https://inmuebles.mercadolibre.com.ar/casas/venta/apto-credito/bsas-gba-sur/la-plata")
 
 	mainCollector.Wait()
 	innerCollector.Wait()
@@ -177,4 +147,5 @@ func main() {
 	}
 
 	fmt.Println(string(result))
+	fmt.Println(len(result))
 }
