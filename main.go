@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	sf "strings"
 	"time"
 
@@ -38,7 +39,6 @@ type house struct {
 	PriceInfo        price        `json:"priceInfo"`
 	SquareMetersInfo squareMeters `json:"squareMetersInfo"`
 	RealStateInfo    realState    `json:"realStateInfo"`
-	CreditSuitable   bool         `json:"creditalSuitable"`
 	Link             string       `json:"link"`
 	PropertyType     string       `json:"propertyType"`
 	Bedrooms         string       `json:"bedrooms"`
@@ -54,11 +54,24 @@ func GetId(link string) string {
 
 func main() {
 	houses := make([]house, 0)
-
 	domains := [2]string{"inmuebles.mercadolibre.com.ar", "casa.mercadolibre.com.ar"}
 
+	locationCssSelector := "span.poly-component__location"
+	moneyCssSelector := "span.andes-money-amount__fraction"
+	currencyCssSelector := "span.andes-money-amount__currency-symbol"
+	squareMetersCoveredCssSelector := "div.poly-component__attributes-list > ul > li:nth-child(3)"
+	squareMetersTotalCssSelector := "div.ui-pdp-highlighted-specs-res__icon-label:nth-child(1) > span:nth-child(2)"
+	publicationDateCssSelector := "div.ui-pdp-seller-validated > p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-seller-validated__title"
+	publicationDateAlternativeCssSelector := "p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-header__bottom-subtitle"
+	bedroomsCssSelector := "div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(3) > td"
+	bathroomsCssSelector := "div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(4) > td"
+	realStateNameCssSelector := "div.ui-vip-profile-info__info-link"
+	pageUrl := "https://inmuebles.mercadolibre.com.ar/casas/venta/apto-credito/bsas-gba-sur/la-plata"
+	nthElement := 1
+	secondPartPageUrl := "_Desde_{n}_NoIndex_True"
+
 	mainCollector := colly.NewCollector(colly.AllowedDomains(domains[0], domains[1]), colly.Async(true))
-	mainCollector.Limit(&colly.LimitRule{RandomDelay: 5 * time.Second, Parallelism: 2})
+	mainCollector.Limit(&colly.LimitRule{RandomDelay: 5 * time.Second, Parallelism: 3})
 	mainCollector.WithTransport(&http.Transport{
 		DisableKeepAlives: true,
 	})
@@ -74,14 +87,13 @@ func main() {
 			PropertyType:    "Casa",
 			ScrapeDate:      time.Now().Format(time.RFC3339),
 			PublicationDate: "unknown",
-			LocationInfo:    e.ChildText("span.poly-component__location"),
+			LocationInfo:    e.ChildText(locationCssSelector),
 			PriceInfo: price{
-				sf.Replace(e.ChildText("span.andes-money-amount__fraction"), ".", "", 1),
-				e.ChildText("span.andes-money-amount__currency-symbol"),
+				sf.Replace(e.ChildText(moneyCssSelector), ".", "", 1),
+				e.ChildText(currencyCssSelector),
 			},
-			SquareMetersInfo: squareMeters{sf.Split(e.ChildText("div.poly-component__attributes-list > ul > li:nth-child(3)"), " ")[0], "unknown"},
+			SquareMetersInfo: squareMeters{sf.Split(e.ChildText(squareMetersCoveredCssSelector), " ")[0], "unknown"},
 			RealStateInfo:    realState{"unknown", "unknown"},
-			CreditSuitable:   false,
 			Link:             link,
 			Bedrooms:         "unknown",
 			Bathrooms:        "unknown",
@@ -91,7 +103,9 @@ func main() {
 	})
 
 	mainCollector.OnHTML("[title=Siguiente]", func(h *colly.HTMLElement) {
-		mainCollector.Visit(h.Attr("href"))
+		nthElement += 48
+		nextPageUrl := sf.Replace(secondPartPageUrl, "{n}", strconv.Itoa(nthElement), 1)
+		mainCollector.Visit(pageUrl + nextPageUrl)
 	})
 
 	innerCollector.OnHTML("div#ui-pdp-main-container", func(e *colly.HTMLElement) {
@@ -100,14 +114,14 @@ func main() {
 		})
 
 		if i != -1 {
-			publicationDate := e.ChildText("div.ui-pdp-seller-validated > p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-seller-validated__title")
+			publicationDate := e.ChildText(publicationDateCssSelector)
 
 			if sf.Contains(publicationDate, "identidad verificada") {
-				publicationDate = e.ChildText("p.ui-pdp-color--GRAY.ui-pdp-size--XSMALL.ui-pdp-family--REGULAR.ui-pdp-header__bottom-subtitle")
+				publicationDate = e.ChildText(publicationDateAlternativeCssSelector)
 			}
 
-			bedrooms := e.ChildText("div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(3) > td")
-			bathrooms := e.ChildText("div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(4) > td")
+			bedrooms := e.ChildText(bedroomsCssSelector)
+			bathrooms := e.ChildText(bathroomsCssSelector)
 
 			if len(sf.TrimSpace(bedrooms)) != 0 {
 				houses[i].Bedrooms = bedrooms
@@ -118,8 +132,8 @@ func main() {
 			}
 
 			houses[i].PublicationDate = publicationDate
-			houses[i].RealStateInfo.Name = e.ChildText("div.ui-vip-profile-info__info-link")
-			houses[i].SquareMetersInfo.Total = sf.Split(e.ChildText("div.ui-pdp-highlighted-specs-res__icon-label:nth-child(1) > span:nth-child(2)"), " ")[0]
+			houses[i].RealStateInfo.Name = e.ChildText(realStateNameCssSelector)
+			houses[i].SquareMetersInfo.Total = sf.Split(e.ChildText(squareMetersTotalCssSelector), " ")[0]
 		}
 	})
 
@@ -132,10 +146,9 @@ func main() {
 	innerCollector.OnRequest(func(r *colly.Request) {
 		extensions.RandomUserAgent(innerCollector)
 		extensions.Referer(innerCollector)
-		fmt.Println("Visiting", r.URL)
 	})
 
-	mainCollector.Visit("https://inmuebles.mercadolibre.com.ar/casas/venta/apto-credito/bsas-gba-sur/la-plata")
+	mainCollector.Visit(pageUrl)
 
 	mainCollector.Wait()
 	innerCollector.Wait()
@@ -147,5 +160,5 @@ func main() {
 	}
 
 	fmt.Println(string(result))
-	fmt.Println(len(result))
+	fmt.Println(len(houses))
 }
