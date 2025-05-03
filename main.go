@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -66,9 +67,34 @@ func main() {
 	bedroomsCssSelector := "div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(3) > td"
 	bathroomsCssSelector := "div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(4) > td"
 	realStateNameCssSelector := "div.ui-vip-profile-info__info-link"
-	pageUrl := "https://inmuebles.mercadolibre.com.ar/casas/venta/apto-credito/bsas-gba-sur/la-plata"
+
+	pageUrl := "https://inmuebles.mercadolibre.com.ar/casas/venta/apto-credito/bsas-gba-sur/la-plata/"
+	priceRangeUrl := "_PriceRange_{1}USD-{2}USD"
 	nthElement := 1
-	secondPartPageUrl := "_Desde_{n}_NoIndex_True"
+	secondPartPageUrl := "_Desde_{n}"
+
+	builder := sf.Builder{}
+
+	var minRangePrice, maxRangePrice int32
+
+	fmt.Println("Enter the price ranges for the search: ")
+	_, err := fmt.Scanln(&minRangePrice, &maxRangePrice)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if maxRangePrice < minRangePrice {
+		auxRangePrice := minRangePrice
+		minRangePrice = maxRangePrice
+		maxRangePrice = auxRangePrice
+	}
+
+	priceRangeUrl = sf.Replace(priceRangeUrl, "{1}", strconv.Itoa(int(minRangePrice)), 1)
+	priceRangeUrl = sf.Replace(priceRangeUrl, "{2}", strconv.Itoa(int(maxRangePrice)), 1)
+
+
+	builder.WriteString(pageUrl)
+	builder.WriteString(priceRangeUrl)
 
 	mainCollector := colly.NewCollector(colly.AllowedDomains(domains[0], domains[1]), colly.Async(true))
 	mainCollector.Limit(&colly.LimitRule{RandomDelay: 5 * time.Second, Parallelism: 3})
@@ -102,10 +128,17 @@ func main() {
 		innerCollector.Visit(link)
 	})
 
-	mainCollector.OnHTML("[title=Siguiente]", func(h *colly.HTMLElement) {
-		nthElement += 48
-		nextPageUrl := sf.Replace(secondPartPageUrl, "{n}", strconv.Itoa(nthElement), 1)
-		mainCollector.Visit(pageUrl + nextPageUrl)
+	mainCollector.OnHTML("li.andes-pagination__button.andes-pagination__button--next", func(h *colly.HTMLElement) {
+		if !h.DOM.HasClass("andes-pagination__button--disabled") {
+			buider := sf.Builder{}
+			nthElement += 48
+			nextPageUrl := sf.Replace(secondPartPageUrl, "{n}", strconv.Itoa(nthElement), 1)
+
+			buider.WriteString(pageUrl)
+			buider.WriteString(nextPageUrl)
+			buider.WriteString(priceRangeUrl)
+			mainCollector.Visit(buider.String())
+		}
 	})
 
 	innerCollector.OnHTML("div#ui-pdp-main-container", func(e *colly.HTMLElement) {
@@ -148,7 +181,7 @@ func main() {
 		extensions.Referer(innerCollector)
 	})
 
-	mainCollector.Visit(pageUrl)
+	mainCollector.Visit(builder.String())
 
 	mainCollector.Wait()
 	innerCollector.Wait()
