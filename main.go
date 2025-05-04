@@ -68,7 +68,7 @@ func main() {
 	bathroomsCssSelector := "div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(4) > td"
 	realStateNameCssSelector := "div.ui-vip-profile-info__info-link"
 
-	pageUrl := "https://inmuebles.mercadolibre.com.ar/casas/venta/apto-credito/bsas-gba-sur/la-plata/"
+	pageUrl := "https://inmuebles.mercadolibre.com.ar/{1}/venta/apto-credito/bsas-gba-sur/la-plata/"
 	priceRangeUrl := "_PriceRange_{1}USD-{2}USD"
 	nthElement := 1
 	secondPartPageUrl := "_Desde_{n}"
@@ -76,9 +76,22 @@ func main() {
 	builder := sf.Builder{}
 
 	var minRangePrice, maxRangePrice int32
+	var propertyTypeSelection int32
+	var propertyTypeSelected string
+	propertyTypes := [3]string{"casas", "departamentos", "ph"}
+
+	fmt.Println("Enter the property type you like to search.\n1. Casas\n2. Departamentos \n3. PH")
+	_, err := fmt.Scanln(&propertyTypeSelection)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	propertyTypeSelected = propertyTypes[propertyTypeSelection-1]
+
+	pageUrl = sf.Replace(pageUrl, "{1}", propertyTypeSelected, 1)
 
 	fmt.Println("Enter the price ranges for the search: ")
-	_, err := fmt.Scanln(&minRangePrice, &maxRangePrice)
+	_, err = fmt.Scanln(&minRangePrice, &maxRangePrice)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -91,7 +104,6 @@ func main() {
 
 	priceRangeUrl = sf.Replace(priceRangeUrl, "{1}", strconv.Itoa(int(minRangePrice)), 1)
 	priceRangeUrl = sf.Replace(priceRangeUrl, "{2}", strconv.Itoa(int(maxRangePrice)), 1)
-
 
 	builder.WriteString(pageUrl)
 	builder.WriteString(priceRangeUrl)
@@ -110,7 +122,7 @@ func main() {
 		houses = append(houses, house{
 			Id:              GetId(link),
 			PageScraped:     "Mercado Libre",
-			PropertyType:    "Casa",
+			PropertyType:    propertyTypeSelected,
 			ScrapeDate:      time.Now().Format(time.RFC3339),
 			PublicationDate: "unknown",
 			LocationInfo:    e.ChildText(locationCssSelector),
