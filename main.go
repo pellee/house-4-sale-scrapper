@@ -53,6 +53,37 @@ func GetId(link string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
+func ZoneSelectionMenu() string {
+	var zoneSelection, localitySelection int32
+
+	localities := [4][4]string{{"capital-federeal", "parque-patricios", "san-nicolas", "san-cristobal"}, {"bsas-gba-sur", "la-plata", "lanus", "lomas-de-zamora"}, {"bsas-gba-oeste", "moron", "ituzaingo", "castelar"}, {"bsas-gba-norte", "san-isidro", "san-fernando", "vicente-lopez"}}
+
+	fmt.Println("Enter the zone you like to search.\n1. CABA\n2. GBA Sur\n3. GBA Oeste\n4. GBA Norte")
+	_, err := fmt.Scanln(&zoneSelection)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	switch zoneSelection {
+	case 1:
+		fmt.Println("Enter the locality you like to search.\n1. Parque Patricios\n2. San Nicolas\n3. San Cristobal")
+	case 2:
+		fmt.Println("Enter the locality you like to search.\n1. La Plata\n2. Lanus\n3. Lomas De Zamora")
+	case 3:
+		fmt.Println("Enter the locality you like to search.\n1. Moron\n2. Ituzaingo\n3. Castelar")
+	case 4:
+		fmt.Println("Enter the locality you like to search.\n1. San Isidro\n2. San Fernando\n3. Vicente Lopez")
+	}
+	_, err = fmt.Scanln(&localitySelection)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	zoneSelection -= 1
+
+	return sf.Replace(sf.Replace("{1}/{2}/", "{1}", localities[zoneSelection][0], 1), "{2}", localities[zoneSelection][localitySelection], 1)
+}
+
 func main() {
 	houses := make([]house, 0)
 	domains := [2]string{"inmuebles.mercadolibre.com.ar", "casa.mercadolibre.com.ar"}
@@ -68,14 +99,15 @@ func main() {
 	bathroomsCssSelector := "div.ui-vpp-striped-specs:nth-child(1) > div:nth-child(1) > table:nth-child(2) > tbody > tr:nth-child(4) > td"
 	realStateNameCssSelector := "div.ui-vip-profile-info__info-link"
 
-	pageUrl := "https://inmuebles.mercadolibre.com.ar/{1}/venta/apto-credito/bsas-gba-sur/la-plata/"
+	pageUrl := "https://inmuebles.mercadolibre.com.ar/{1}/venta/apto-credito/"
 	priceRangeUrl := "_PriceRange_{1}USD-{2}USD"
 	nthElement := 1
-	secondPartPageUrl := "_Desde_{n}"
+	paginationPageUrl := "_Desde_{n}"
 
 	builder := sf.Builder{}
 
 	var minRangePrice, maxRangePrice int32
+
 	var propertyTypeSelection int32
 	var propertyTypeSelected string
 	propertyTypes := [3]string{"casas", "departamentos", "ph"}
@@ -85,6 +117,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	secondPartPageUrl := ZoneSelectionMenu()
 
 	propertyTypeSelected = propertyTypes[propertyTypeSelection-1]
 
@@ -106,6 +140,7 @@ func main() {
 	priceRangeUrl = sf.Replace(priceRangeUrl, "{2}", strconv.Itoa(int(maxRangePrice)), 1)
 
 	builder.WriteString(pageUrl)
+	builder.WriteString(secondPartPageUrl)
 	builder.WriteString(priceRangeUrl)
 
 	mainCollector := colly.NewCollector(colly.AllowedDomains(domains[0], domains[1]), colly.Async(true))
@@ -144,9 +179,10 @@ func main() {
 		if !h.DOM.HasClass("andes-pagination__button--disabled") {
 			buider := sf.Builder{}
 			nthElement += 48
-			nextPageUrl := sf.Replace(secondPartPageUrl, "{n}", strconv.Itoa(nthElement), 1)
+			nextPageUrl := sf.Replace(paginationPageUrl, "{n}", strconv.Itoa(nthElement), 1)
 
 			buider.WriteString(pageUrl)
+			buider.WriteString(secondPartPageUrl)
 			buider.WriteString(nextPageUrl)
 			buider.WriteString(priceRangeUrl)
 			mainCollector.Visit(buider.String())
